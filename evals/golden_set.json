@@ -1,0 +1,22 @@
+[
+  {
+    "question": "公司主营产品是什么？",
+    "expected_source": "产品介绍.txt",
+    "keywords": ["道岔", "监测"]
+  },
+  {
+    "question": "道岔监测系统报警后值班人员需要做什么？",
+    "expected_source": "产品介绍.txt",
+    "keywords": ["报警", "上报"]
+  },
+  {
+    "question": "出差报销需要什么流程？",
+    "expected_source": "报销制度.txt",
+    "keywords": ["审批", "报销"]
+  },
+  {
+    "question": "出差住宿标准是多少？",
+    "expected_source": "报销制度.txt",
+    "keywords": ["500"]
+  }
+]

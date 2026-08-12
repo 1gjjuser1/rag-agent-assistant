@@ -1,0 +1,40 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --disable-warnings"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["."]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = [
+  "fastapi.Depends",
+  "fastapi.File",
+  "fastapi.Form",
+  "fastapi.security.HTTPBearer",
+]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+no_implicit_optional = true
+warn_unused_ignores = false
+exclude = ["^tests/"]
+files = [
+  "api.py",
+  "app.py",
+  "config.py",
+  "ingestion.py",
+  "llm_client.py",
+  "rag_pipeline.py",
+  "react_agent.py",
+  "store.py",
+  "vector_store.py",
+  "evals",
+  "utils",
+]

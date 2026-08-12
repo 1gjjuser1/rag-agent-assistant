@@ -1,0 +1,5 @@
+# 开发依赖
+-r requirements.txt
+pytest>=8.0.0
+ruff>=0.9.0
+mypy>=1.10.0
