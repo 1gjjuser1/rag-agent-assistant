@@ -446,7 +446,6 @@ if messages:
 
 
 # 欢迎页（空会话）：居中标题 + 居中输入框（仿 DeepSeek 首页）
-welcome_question = None
 if not messages:
     st.markdown(
         '<div class="welcome"><h1>欢迎使用辉煌科技知识库问答系统</h1></div>',
@@ -463,7 +462,15 @@ if not messages:
         with col_btn:
             submitted = st.form_submit_button("发送", width="stretch")
     if submitted and welcome_text.strip():
-        welcome_question = welcome_text.strip()
+        # 先写入用户消息并跳转：下一次渲染直接进入聊天界面（消息流 + 底部输入框），
+        # 不再停留在欢迎页上输出答案。
+        current["messages"].append(
+            {"role": "user", "content": welcome_text.strip()}
+        )
+        if len(current["messages"]) == 1:
+            current["title"] = _conversation_title_from(welcome_text.strip())
+        st.session_state.pending_question = welcome_text.strip()
+        st.rerun()
 
 
 for msg in messages:
@@ -493,18 +500,23 @@ for msg in messages:
                     st.json(step)
 
 
-if messages:
-    question = st.chat_input("给智能文档助手发送消息…", max_chars=1000)
-else:
-    question = welcome_question
+question = st.chat_input("给智能文档助手发送消息…", max_chars=1000) if messages else None
+if question is None:
+    question = st.session_state.pop("pending_question", None)
 
 if question:
-    current["messages"].append({"role": "user", "content": question})
-    if len(current["messages"]) == 1:
-        current["title"] = _conversation_title_from(question)
-
-    with st.chat_message("user"):
-        st.markdown(question)
+    # 欢迎页提交时已把用户消息写入会话（并已由上方消息循环渲染），
+    # 这里避免重复追加/重复渲染；普通聊天输入则正常追加。
+    last = current["messages"][-1] if current["messages"] else None
+    already_queued = bool(
+        last and last["role"] == "user" and last["content"] == question
+    )
+    if not already_queued:
+        current["messages"].append({"role": "user", "content": question})
+        if len(current["messages"]) == 1:
+            current["title"] = _conversation_title_from(question)
+        with st.chat_message("user"):
+            st.markdown(question)
 
     with st.chat_message("assistant"):
         answer_box = st.empty()
