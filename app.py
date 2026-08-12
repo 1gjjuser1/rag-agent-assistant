@@ -150,12 +150,16 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
+#做了什么： 创建两个核心服务对象，并用 @st.cache_resource 缓存，保证整个 Streamlit 应用只创建一次,而不是每次刷新页面都重新创建
+
 @st.cache_resource
 def get_services() -> tuple[RAGPipeline, ReActAgent]:
     rag = RAGPipeline()
     return rag, ReActAgent(rag=rag, llm_client=rag.llm)
 
 
+#定义了一个"入库任务"类。当用户上传文档后，系统需要在后台把文档切块、生成向量索引，这个过程比较耗时，所以放到后台线程去做。
 @dataclass
 class IngestJob:
     """后台入库任务状态；由工作线程写入，主线程只读。"""
@@ -230,15 +234,13 @@ rag, agent = get_services()
 
 
 # ---------- 会话（Conversation）模型：每个会话独立 ----------
-
-
-def _new_conversation(kb_id: str | None, title: str = "新对话") -> dict:
+def _new_conversation(kb_id, title="新对话") -> dict:
     return {
-        "id": uuid.uuid4().hex[:10],
-        "title": title,
-        "messages": [],
-        "kb_id": kb_id,
-        "pinned": False,
+        "id": uuid.uuid4().hex[:10],   # 随机唯一ID
+        "title": title,                 # 会话标题
+        "messages": [],                 # 消息历史
+        "kb_id": kb_id,                 # 绑定的知识库
+        "pinned": False,               # 是否置顶
     }
 
 
@@ -477,10 +479,10 @@ messages = current["messages"]
 
 # 聊天状态显示当前知识库信息；欢迎页保持简洁
 if messages:
-    if kb_id and (kb := rag.get_kb(kb_id)):
+    if kb_id and (selected_kb := rag.get_kb(kb_id)):
         kb_stats = rag.kb_stats(kb_id)
         st.caption(
-            f"当前知识库：**{kb.name}**（{kb_stats['documents']} 个文档 · "
+            f"当前知识库：**{selected_kb.name}**（{kb_stats['documents']} 个文档 · "
             f"{kb_stats['chunks']} 个片段）· 知识库 RAG + Agent 工具调度"
         )
     else:

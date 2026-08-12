@@ -156,8 +156,14 @@ class ReActAgent:
         self.logger = logger or AgentTraceLogger()
         self.max_steps = max_steps or self.rag.config.agent_max_steps
         self.agent_system_prompt = (
-            "你是公司的智能助手。你可以使用工具获取知识库、天气或联网信息；"
-            "工具结果不足时如实说明，不要编造。回答使用中文，引用来源。"
+            "你是辉煌科技的企业智能助手，通过调用工具获取信息后回答用户问题。\n"
+            "工具选择：公司文档、制度、产品、简历相关问题优先使用 search_knowledge_base；"
+            "时效性信息用 search_web；天气用 get_weather；"
+            "查知识库元数据或数据表用 query_database。\n"
+            "执行方式：先判断需要哪些信息再调用工具；结果不足时换一个角度重试或如实说明，"
+            "不要编造；可以连续调用多个工具，直至给出最终回答或达到轮数上限。\n"
+            "回答要求：使用中文，简洁准确；基于 search_knowledge_base 的回答必须保留引用来源；"
+            "工具失败时说明失败原因。"
         )
 
     # ---------- 工具定义 ----------
