@@ -110,7 +110,7 @@ st.markdown(
         border: none;
         background: transparent;
         box-shadow: none;
-        color: #6b6b6b;
+        color:rgb(114, 70, 70);
         min-width: 1.8rem;
         padding: 0 0.2rem;
         transition: opacity 0.15s ease;
@@ -149,7 +149,6 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-
 
 @st.cache_resource
 def get_services() -> tuple[RAGPipeline, ReActAgent]:
