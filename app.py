@@ -100,10 +100,28 @@ st.markdown(
         justify-content: flex-start;
       }
 
-      /* 欢迎页 */
-      .welcome { text-align: center; padding-top: 9vh; }
-      .welcome h1 { font-size: 2rem; font-weight: 600; color: #1f1f1f; }
-      .welcome p { color: #8a8a8a; font-size: 0.95rem; margin-top: 0.5rem; }
+      /* 欢迎页：居中标题 + 居中输入框（仿 DeepSeek 首页） */
+      .welcome { text-align: center; padding-top: 22vh; }
+      .welcome h1 { font-size: 1.9rem; font-weight: 600; color: #1f1f1f; }
+
+      /* 欢迎页输入表单：去掉默认边框，圆角居中 */
+      form[data-testid="stForm"] {
+        border: none;
+        background: transparent;
+        padding: 0;
+        max-width: 880px;
+        margin: 0 auto;
+      }
+      form[data-testid="stForm"] [data-testid="stTextInput"] input {
+        border-radius: 26px;
+        border: 1px solid #e5e5e5;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        padding: 0.85rem 1.2rem;
+      }
+      form[data-testid="stForm"] [data-testid="stTextInput"] input:focus {
+        border-color: #4d6bfe;
+        box-shadow: 0 2px 14px rgba(77, 107, 254, 0.15);
+      }
 
       /* 当前会话高亮 */
       .conv-title { font-weight: 600; color: #1f1f1f; }
@@ -259,28 +277,34 @@ with st.sidebar:
         st.divider()
         convs = st.session_state.conversations
         current_id = st.session_state.current_conv_id
-        for cid, conv in reversed(list(convs.items())):
-            label = conv.get("title") or "新对话"
-            if cid == current_id:
-                label = f"▸ {label}"
-            col1, col2 = st.columns([5, 1])
-            with col1:
-                if st.button(label, key=f"open_{cid}", width="stretch"):
-                    st.session_state.current_conv_id = cid
-                    st.rerun()
-            with col2:
-                if st.button("✕", key=f"del_{cid}", help="删除该对话"):
-                    del st.session_state.conversations[cid]
-                    if st.session_state.current_conv_id == cid:
-                        if st.session_state.conversations:
-                            st.session_state.current_conv_id = next(
-                                iter(st.session_state.conversations)
-                            )
-                        else:
-                            conv = _new_conversation(kb_id=None)
-                            st.session_state.conversations[conv["id"]] = conv
-                            st.session_state.current_conv_id = conv["id"]
-                    st.rerun()
+        history_items = [
+            (cid, conv) for cid, conv in convs.items() if conv.get("messages")
+        ]
+        if not history_items:
+            st.caption("暂无历史对话")
+        else:
+            for cid, conv in reversed(history_items):
+                label = conv.get("title") or "新对话"
+                if cid == current_id:
+                    label = f"▸ {label}"
+                col1, col2 = st.columns([5, 1])
+                with col1:
+                    if st.button(label, key=f"open_{cid}", width="stretch"):
+                        st.session_state.current_conv_id = cid
+                        st.rerun()
+                with col2:
+                    if st.button("✕", key=f"del_{cid}", help="删除该对话"):
+                        del st.session_state.conversations[cid]
+                        if st.session_state.current_conv_id == cid:
+                            if st.session_state.conversations:
+                                st.session_state.current_conv_id = next(
+                                    iter(st.session_state.conversations)
+                                )
+                            else:
+                                conv = _new_conversation(kb_id=None)
+                                st.session_state.conversations[conv["id"]] = conv
+                                st.session_state.current_conv_id = conv["id"]
+                        st.rerun()
 
         st.divider()
         if st.button("🗑 清空当前对话", width="stretch", key="clear_conv_btn"):
@@ -409,31 +433,37 @@ current = _current_conversation()
 kb_id = current.get("kb_id")
 messages = current["messages"]
 
-if kb_id and (kb := rag.get_kb(kb_id)):
-    kb_stats = rag.kb_stats(kb_id)
-    st.caption(
-        f"当前知识库：**{kb.name}**（{kb_stats['documents']} 个文档 · "
-        f"{kb_stats['chunks']} 个片段）· 知识库 RAG + Agent 工具调度"
-    )
-else:
-    st.caption("未选择知识库：普通聊天模式 · 可在左侧创建或切换知识库")
+# 聊天状态显示当前知识库信息；欢迎页保持简洁
+if messages:
+    if kb_id and (kb := rag.get_kb(kb_id)):
+        kb_stats = rag.kb_stats(kb_id)
+        st.caption(
+            f"当前知识库：**{kb.name}**（{kb_stats['documents']} 个文档 · "
+            f"{kb_stats['chunks']} 个片段）· 知识库 RAG + Agent 工具调度"
+        )
+    else:
+        st.caption("未选择知识库：普通聊天模式 · 可在左侧创建或切换知识库")
 
 
-# 欢迎页（空会话）
-pending_question = None
+# 欢迎页（空会话）：居中标题 + 居中输入框（仿 DeepSeek 首页）
+welcome_question = None
 if not messages:
     st.markdown(
-        '<div class="welcome"><h1>有什么可以帮你？</h1>'
-        "<p>可以提问文档、查询天气、查数据库，或直接聊天</p></div>",
+        '<div class="welcome"><h1>欢迎使用辉煌科技知识库问答系统</h1></div>',
         unsafe_allow_html=True,
     )
-    col_a, col_b, col_c = st.columns(3)
-    if col_a.button("📄 公司的主营业务是什么", width="stretch"):
-        pending_question = "公司的主营业务是什么？"
-    if col_b.button("🌤 郑州今天是什么天气？", width="stretch"):
-        pending_question = "郑州今天是什么天气？"
-    if col_c.button("🗄 数据库里有哪些表？", width="stretch"):
-        pending_question = "数据库里有哪些表？"
+    with st.form("welcome_form", clear_on_submit=True):
+        col_in, col_btn = st.columns([5, 1])
+        with col_in:
+            welcome_text = st.text_input(
+                "提问",
+                placeholder="给智能文档助手发送消息…",
+                label_visibility="collapsed",
+            )
+        with col_btn:
+            submitted = st.form_submit_button("发送", width="stretch")
+    if submitted and welcome_text.strip():
+        welcome_question = welcome_text.strip()
 
 
 for msg in messages:
@@ -463,12 +493,10 @@ for msg in messages:
                     st.json(step)
 
 
-question = st.chat_input(
-    "给智能文档助手发送消息…",
-    max_chars=1000,
-)
-if question is None:
-    question = pending_question
+if messages:
+    question = st.chat_input("给智能文档助手发送消息…", max_chars=1000)
+else:
+    question = welcome_question
 
 if question:
     current["messages"].append({"role": "user", "content": question})
