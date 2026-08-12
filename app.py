@@ -38,11 +38,11 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-      /* 隐藏 Streamlit 默认装饰 */
-      #MainMenu, footer, header,
-      [data-testid="stDecoration"], [data-testid="stToolbar"] {
-        display: none;
-      }
+      /* 隐藏 Streamlit 默认装饰。
+         注意：不能隐藏 header / stToolbar —— 侧边栏折叠后的“展开”按钮
+         stExpandSidebarButton 就挂在 stToolbar 里，隐藏会导致侧边栏无法恢复。 */
+      #MainMenu, footer, [data-testid="stDecoration"] { display: none; }
+      [data-testid="stToolbar"] [data-testid="stToolbarActions"] { display: none; }
       .block-container {
         padding-top: 1.2rem;
         padding-bottom: 1.5rem;
