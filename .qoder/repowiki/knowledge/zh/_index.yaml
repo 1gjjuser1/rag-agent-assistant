@@ -1,0 +1,66 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: zh-CN
+branch: main
+nodes_managed: true
+exported_at: "2026-08-12T11:42:33Z"
+modules:
+    "":
+        dir_name: 智能文档助手 RAG + Agent（阶段 A）
+        title: 智能文档助手 RAG + Agent（阶段 A）
+        scope:
+            - README.md
+            - .gitignore
+            - .gitattributes
+            - pyproject.toml
+            - requirements.txt
+            - requirements-dev.txt
+            - docs/
+            - .env.example
+            - api.py
+            - app.py
+            - llm_client.py
+            - react_agent.py
+            - 简历项目经历.md
+        source_files: []
+        children:
+            - core_rag_engine
+            - evals
+            - tests
+        depends_on: []
+        related_to: []
+    core_rag_engine:
+        dir_name: RAG 检索增强管线核心
+        title: RAG 检索增强管线核心
+        scope:
+            - rag_pipeline.py
+            - ingestion.py
+            - store.py
+            - vector_store.py
+            - config.py
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: evals
+            - path: tests
+    evals:
+        dir_name: RAG 检索与回答质量评测（Golden Set Eval）
+        title: RAG 检索与回答质量评测（Golden Set Eval）
+        scope:
+            - evals/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: core_rag_engine
+    tests:
+        dir_name: RAG 与 Agent 集成测试套件
+        title: RAG 与 Agent 集成测试套件
+        scope:
+            - tests/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: core_rag_engine

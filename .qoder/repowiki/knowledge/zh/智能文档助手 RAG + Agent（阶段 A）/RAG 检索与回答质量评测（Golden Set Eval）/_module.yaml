@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: evals
+title: RAG 检索与回答质量评测（Golden Set Eval）
+scope:
+    - evals/
+source_files: []
+depends_on: []
+related_to:
+    - path: core_rag_engine

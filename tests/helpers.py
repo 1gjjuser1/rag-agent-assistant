@@ -152,6 +152,8 @@ def make_config(tmp_path, **overrides: Any) -> AppConfig:
         rag_context_max_tokens=2500,
         agent_max_steps=3,
         embedding_batch_size=16,
+        vector_store="milvus",
+        milvus_uri=str(tmp_path / "data" / "milvus.db"),
     )
     defaults.update(overrides)
     return AppConfig(**defaults)

@@ -1,0 +1,14 @@
+schema_version: 1
+module_path: core_rag_engine
+title: RAG 检索增强管线核心
+scope:
+    - rag_pipeline.py
+    - ingestion.py
+    - store.py
+    - vector_store.py
+    - config.py
+source_files: []
+depends_on: []
+related_to:
+    - path: evals
+    - path: tests

@@ -1,12 +1,13 @@
-"""Chroma 向量存储封装。
+"""向量存储封装：Milvus（默认）与 Chroma（备选）双后端。
 
-每个知识库对应一个 Chroma collection（命名 ``kb_<kb_id>``），向量空间固定为
-余弦距离。封装提供了批量入库、按条件删除、相似度查询、取回向量四个能力，
-上层（RAGPipeline）不直接接触 Chroma API。
+每个知识库对应一个 collection（命名 ``kb_<kb_id>``），向量空间固定为余弦。
+封装提供批量入库、按条件删除、相似度查询、取回向量四个能力，上层
+（RAGPipeline）不直接接触具体数据库 API。
 
-为什么直接使用 Chroma 而不是 LangChain 封装：阶段 A 需要精确控制批量
-embedding、按 ``doc_id`` 删除、取回原始向量做 MMR，直接使用原生客户端更清晰，
-也便于理解每一步在做什么。
+为什么默认 Milvus：Milvus 是目前招聘与生产环境的主流向量数据库，支持标量过滤、
+增量 upsert 与余弦检索；本地开发用 Milvus Lite（``pip install pymilvus`` 即可，
+零部署），生产可把 ``MILVUS_URI`` 指向 Docker/集群部署的 Milvus 服务端，
+同一套代码无痛切换。``VECTOR_STORE=chroma`` 可回退到原 Chroma 后端。
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import chromadb
+from pymilvus import MilvusClient
 
 
 class EmbeddingFunction(Protocol):
@@ -36,6 +38,8 @@ class VectorHit:
 
 
 class VectorStore:
+    """Chroma 后端（备选）。"""
+
     def __init__(
         self,
         chroma_dir: str | Path,
@@ -146,6 +150,225 @@ class VectorStore:
 
     def list_collections(self) -> list[str]:
         return [col.name for col in self._client.list_collections()]
+
+
+class MilvusStore:
+    """Milvus 后端：本地模式（Milvus Lite 文件）或服务端，接口与 VectorStore 一致。
+
+    - 本地模式：``uri="data/milvus.db"``，无需 Docker；
+    - 服务端：``uri="http://localhost:19530"``（Milvus standalone / 集群）。
+
+    检索语义：COSINE 指标返回的距离即余弦相似度，越大越相关，与 Chroma 后端
+    的 ``score`` 含义一致（上层无需区分后端）。
+    """
+
+    _OUTPUT_FIELDS = [
+        "doc_id",
+        "kb_id",
+        "source",
+        "chunk_index",
+        "category",
+        "tags",
+        "paragraph",
+        "page",
+    ]
+
+    def __init__(
+        self,
+        uri: str | Path,
+        embedding_fn: EmbeddingFunction,
+        batch_size: int = 32,
+    ) -> None:
+        self._uri = str(uri)
+        self._embedding_fn = embedding_fn
+        self.batch_size = batch_size
+        self._client = MilvusClient(uri=self._uri)
+
+    def _collection(self, name: str) -> str:
+        """集合不存在时按 embedding 维度自动创建（COSINE + string 主键）。"""
+        if not self._client.has_collection(name):
+            dimension = len(self._embedding_fn.embed_query("dimension probe"))
+            try:
+                self._client.create_collection(
+                    collection_name=name,
+                    dimension=dimension,
+                    primary_field_name="id",
+                    id_type="string",
+                    metric_type="COSINE",
+                    auto_id=False,
+                    enable_dynamic_field=True,
+                )
+            except Exception:
+                # 并发场景下另一个线程可能已创建，重查一次再决定是否抛出。
+                if not self._client.has_collection(name):
+                    raise
+        return name
+
+    def reset(self) -> None:
+        """重建客户端连接（后台入库线程完成后调用，避免内存状态过期）。"""
+        self._client = MilvusClient(uri=self._uri)
+
+    def upsert(
+        self,
+        collection: str,
+        ids: list[str],
+        texts: list[str],
+        metadatas: list[dict[str, Any]],
+    ) -> None:
+        """分批向量化并写入；id 相同则覆盖，天然支持增量更新。"""
+        col = self._collection(collection)
+        for start in range(0, len(texts), self.batch_size):
+            end = start + self.batch_size
+            embeddings = self._embedding_fn.embed_documents(texts[start:end])
+            data: list[dict[str, Any]] = []
+            for index, chunk_id in enumerate(ids[start:end]):
+                item: dict[str, Any] = {
+                    "id": chunk_id,
+                    "vector": embeddings[index],
+                }
+                for key, value in metadatas[start:end][index].items():
+                    if value is not None and isinstance(
+                        value, (str, int, float, bool)
+                    ):
+                        item[key] = value
+                data.append(item)
+            self._client.upsert(col, data=data)
+
+    def delete(
+        self,
+        collection: str,
+        where: dict[str, Any] | None = None,
+        ids: list[str] | None = None,
+    ) -> None:
+        if not self._client.has_collection(collection):
+            return
+        if ids:
+            self._client.delete(collection, ids=[str(i) for i in ids])
+        if where:
+            self._client.delete(collection, filter=self._filter_expr(where))
+
+    def query(
+        self,
+        collection: str,
+        query_text: str,
+        k: int,
+        where: dict[str, Any] | None = None,
+    ) -> list[VectorHit]:
+        if not self._client.has_collection(collection):
+            return []
+        query_vector = self._embedding_fn.embed_query(query_text)
+        expr = self._filter_expr(where) if where else None
+        result = self._client.search(
+            collection,
+            data=[query_vector],
+            limit=k,
+            filter=expr,
+            output_fields=self._OUTPUT_FIELDS,
+        )
+        hits: list[VectorHit] = []
+        if not result:
+            return hits
+        for hit in result[0]:
+            entity = hit.get("entity", {}) or {}
+            metadata = {
+                field: entity[field]
+                for field in self._OUTPUT_FIELDS
+                if entity.get(field) is not None
+            }
+            hits.append(
+                VectorHit(
+                    id=str(hit["id"]),
+                    text="",  # 片段原文由 SQLite 提供，向量库不冗余保存
+                    metadata=metadata,
+                    score=float(hit["distance"]),  # COSINE 距离即相似度
+                )
+            )
+        return hits
+
+    def get_embeddings(
+        self,
+        collection: str,
+        ids: list[str],
+    ) -> dict[str, list[float]]:
+        if not ids or not self._client.has_collection(collection):
+            return {}
+        result = self._client.get(
+            collection,
+            ids=[str(i) for i in ids],
+            output_fields=["vector"],
+        )
+        return {str(row["id"]): row["vector"] for row in result}
+
+    def query_embedding(self, text: str) -> list[float]:
+        return self._embedding_fn.embed_query(text)
+
+    def count(self, collection: str) -> int:
+        if not self._client.has_collection(collection):
+            return 0
+        stats = self._client.get_collection_stats(collection)
+        return int(stats.get("row_count", 0))
+
+    def clear_collection(self, collection: str) -> None:
+        with contextlib.suppress(Exception):
+            self._client.drop_collection(collection)
+
+    def list_collections(self) -> list[str]:
+        return list(self._client.list_collections())
+
+    def list_ids(
+        self,
+        collection: str,
+        where: dict[str, Any] | None = None,
+    ) -> list[str]:
+        """返回集合中满足条件的 id（分页拉取，避免超过单次查询上限）。"""
+        if not self._client.has_collection(collection):
+            return []
+        expr = self._filter_expr(where) if where else None
+        ids: list[str] = []
+        limit = 16384
+        offset = 0
+        while True:
+            rows = self._client.query(
+                collection,
+                filter=expr,
+                output_fields=["id"],
+                limit=limit,
+                offset=offset,
+            )
+            ids.extend(str(row["id"]) for row in rows)
+            if len(rows) < limit:
+                break
+            offset += limit
+        return ids
+
+    @staticmethod
+    def _filter_expr(where: dict[str, Any]) -> str:
+        """把 ``{"doc_id": "x"}`` 转成 Milvus 过滤表达式。"""
+        parts: list[str] = []
+        for key, value in where.items():
+            if isinstance(value, bool):
+                parts.append(f"{key} == {'true' if value else 'false'}")
+            elif isinstance(value, (int, float)):
+                parts.append(f"{key} == {value}")
+            else:
+                escaped = str(value).replace('"', '\\"')
+                parts.append(f'{key} == "{escaped}"')
+        return " and ".join(parts)
+
+
+def create_vector_store(config: Any, embedding_fn: EmbeddingFunction):
+    """按配置创建向量存储后端（milvus 默认 / chroma 备选）。"""
+    if getattr(config, "vector_store", "milvus") == "milvus":
+        return MilvusStore(
+            config.milvus_uri,
+            embedding_fn,
+            batch_size=config.embedding_batch_size,
+        )
+    return VectorStore(
+        config.chroma_dir,
+        embedding_fn,
+        batch_size=config.embedding_batch_size,
+    )
 
 
 class _MockEmbedding:

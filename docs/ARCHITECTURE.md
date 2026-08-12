@@ -24,7 +24,7 @@ flowchart LR
     end
     subgraph 数据层
         STORE[(SQLite<br/>知识库/文档/版本/片段)]
-        VEC[(Chroma<br/>向量 collection)]
+        VEC[(Milvus<br/>向量 collection)]
         FILES[(data/docs<br/>版本化文件)]
     end
     subgraph 工具
@@ -49,7 +49,7 @@ flowchart LR
 | `config.py` | 集中配置 | 所有参数环境变量可覆盖，冻结 dataclass |
 | `llm_client.py` | 模型接入 | `chat`（普通）、`chat_raw`（返回 tool_calls）、`stream_chat`、`embeddings` |
 | `store.py` | 元数据存储 | SQLite WAL；知识库/文档/版本/片段/键值 5 张表 |
-| `vector_store.py` | 向量存储 | Chroma 原生客户端；批量 upsert、按 where 删除、取向量 |
+| `vector_store.py` | 向量存储 | Milvus（Lite/服务端，默认）+ Chroma（备选）双后端；批量 upsert、按条件删除、取向量 |
 | `ingestion.py` | 文档解析 | PDF 文本质量检测 + 本地 OCR 兜底；递归字符切分 |
 | `rag_pipeline.py` | RAG 编排 | 入库、混合检索、查询改写、带引用问答 |
 | `react_agent.py` | Agent 编排 | 工具注册表、Function Calling 循环、流式事件 |
@@ -64,7 +64,7 @@ flowchart LR
         → ingest（后台线程）
             ├─ SHA-256 与 indexed_sha 对比，跳过未变化文件
             ├─ 索引配置签名变化？→ 全量重建
-            ├─ 解析 → 切分 → 批量 Embedding → Chroma upsert
+            ├─ 解析 → 切分 → 批量 Embedding → Milvus upsert
             ├─ 片段写 SQLite（供 BM25 重建与检索）
             └─ 更新 indexed_sha / chunk_count / 索引配置版本
 ```
@@ -78,13 +78,13 @@ flowchart LR
   `EMBEDDING_BATCH_SIZE` 默认 16 并在配置层强制钳制到 20 以内，避免长文档入库报
   “batch size is invalid, it should not be larger than 20”。
 - **索引配置签名**：`index_config_version` 由 chunk 参数 + Embedding 模型名 + 向量空间
-  计算。任一变化，下次 ingest 全量重建，避免新旧向量混用。
+  + 向量存储后端/地址 计算。任一变化，下次 ingest 全量重建，避免新旧向量混用。
 
 ### 4.2 检索流（混合检索）
 
 ```text
 问题 → （可选）查询改写
-     ├─ 向量检索：Embedding → Chroma 余弦 Top-N
+     ├─ 向量检索：Embedding → Milvus 余弦 Top-N
      ├─ BM25 检索：jieba 分词 → BM25 Top-N
      └─ RRF 融合：score = Σ 1/(k + rank)
           ├─ 相关性门槛：最高向量相似度 < 阈值 → 视为无相关内容
@@ -162,10 +162,10 @@ def tool_name(...) -> ToolResult:
 
 ## 6. 并发模型
 
-后台入库使用**独立 RAGPipeline 实例**（新 Chroma 客户端）在线程中执行，
-避免与前台共享同一个 Chroma 客户端。完成后调用主实例的 `refresh()`：
+后台入库使用**独立 RAGPipeline 实例**（新向量存储客户端）在线程中执行，
+避免与前台共享同一个客户端。完成后调用主实例的 `refresh()`：
 
-- `vectors.reset()`：重建 Chroma 客户端，丢弃过期的内存索引；
+- `vectors.reset()`：重建向量存储客户端，丢弃过期的内存索引；
 - 使 BM25 / 片段缓存失效，下次检索自动重建。
 
 已知限制：入库过程中前台可继续聊天，但检索可能读到半新半旧的索引；
@@ -191,7 +191,7 @@ def tool_name(...) -> ToolResult:
 | --- | --- |
 | 无用户/鉴权/审计 | SSO/LDAP + RBAC + 审计日志 |
 | 单机 SQLite | PostgreSQL |
-| Chroma 单机向量库 | pgvector / Milvus / Qdrant |
+| Milvus Lite 本地文件 | Milvus 服务端集群（Docker Compose / K8s） |
 | 后台线程入库 | Celery/RQ 任务队列 |
 | 无 REST API | FastAPI 服务层（阶段 A 已实现：见 ``api.py``，含 Bearer 鉴权） |
 | 无成本/指标观测 | 结构化日志 + 按租户 token 计费 |

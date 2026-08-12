@@ -1,0 +1,20 @@
+schema_version: 1
+module_path: ""
+title: 智能文档助手 RAG + Agent（阶段 A）
+scope:
+    - README.md
+    - .gitignore
+    - .gitattributes
+    - pyproject.toml
+    - requirements.txt
+    - requirements-dev.txt
+    - docs/
+    - .env.example
+    - api.py
+    - app.py
+    - llm_client.py
+    - react_agent.py
+    - 简历项目经历.md
+source_files: []
+depends_on: []
+related_to: []

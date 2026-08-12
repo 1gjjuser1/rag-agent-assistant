@@ -22,7 +22,7 @@ from llm_client import DashScopeClient, safe_error
 from store import Chunk, DocumentInfo, DocumentStore, Kb
 from utils.logger import estimate_tokens
 from utils.retrieval import BM25Index, mmr_rerank, reciprocal_rank_fusion
-from vector_store import VectorStore
+from vector_store import create_vector_store
 
 INDEX_CONFIG_KEY = "index_config_version"
 
@@ -201,10 +201,9 @@ class RAGPipeline:
         self.llm = llm_client or DashScopeClient()
         self.store = DocumentStore(self.config.db_path)
         self.parser = parser or DocumentParser()
-        self.vectors = VectorStore(
-            self.config.chroma_dir,
+        self.vectors = create_vector_store(
+            self.config,
             embedding_fn or self.llm.embeddings(),
-            batch_size=self.config.embedding_batch_size,
         )
         self._bm25: dict[str, BM25Index] = {}
         self._bm25_stale: set[str] = set()
@@ -738,6 +737,9 @@ class RAGPipeline:
                 "chunk_overlap": self.config.chunk_overlap,
                 "embedding_model": getattr(self.llm, "embedding_model", "unknown"),
                 "collection_space": "cosine",
+                # 向量存储后端或连接地址变化时同样触发全量重建，避免新旧索引混用。
+                "vector_store": self.config.vector_store,
+                "milvus_uri": self.config.milvus_uri,
                 # 解析器/切分行为变化时递增，触发存量文档全量重建。
                 "parser_version": 2,
             },

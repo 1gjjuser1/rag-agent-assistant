@@ -53,6 +53,14 @@ def _resolve_path(value: str, base: Path) -> Path:
     return path if path.is_absolute() else base / path
 
 
+def _resolve_uri(value: str, base: Path) -> str:
+    """MILVUS_URI 支持服务端地址（http://...）或本地文件路径。"""
+    if value.startswith(("http://", "https://", "tcp://")):
+        return value
+    path = Path(value)
+    return str(path if path.is_absolute() else base / path)
+
+
 @dataclass(frozen=True)
 class AppConfig:
     """RAG/Agent 阶段 A 的全部运行参数（使用了 Python 的 @dataclass(frozen=True) 装饰器，冻结对象，避免运行中被意外修改）。
@@ -66,7 +74,8 @@ class AppConfig:
     - mmr_enabled / mmr_lambda：是否启用 MMR 去重重排及多样性权重；
     - query_rewrite_enabled：多轮对话时是否先用大模型改写问题；
     - agent_max_steps：Agent 最多调用工具的轮数；
-    - embedding_batch_size：向量化时的批量大小。
+    - embedding_batch_size：向量化时的批量大小；
+    - vector_store / milvus_uri：向量存储后端（milvus 默认 / chroma 备选）与 Milvus 地址。
     """
 
     data_dir: Path
@@ -85,6 +94,8 @@ class AppConfig:
     rag_context_max_tokens: int
     agent_max_steps: int
     embedding_batch_size: int
+    vector_store: str = "milvus"
+    milvus_uri: str = ""
 
     @classmethod
     def from_env(cls, data_dir: str | Path | None = None) -> AppConfig:
@@ -93,6 +104,9 @@ class AppConfig:
         # DashScope Embedding 接口单次最多 20 条（qwen3-text-embedding 等），
         # 默认取 16 留出余量，避免“batch size should not be larger than 20”报错。
         embedding_batch_size = _clamp(_env_int("EMBEDDING_BATCH_SIZE", 16), 1, 20)
+        vector_store = _env_str("VECTOR_STORE", "milvus").lower()
+        if vector_store not in {"chroma", "milvus"}:
+            vector_store = "milvus"
         return cls(
             data_dir=base,
             chroma_dir=_resolve_path(_env_str("CHROMA_DIR", str(base / "chroma")), base),
@@ -109,4 +123,8 @@ class AppConfig:
             rag_context_max_tokens=_env_int("RAG_CONTEXT_MAX_TOKENS", 2500),
             agent_max_steps=_env_int("AGENT_MAX_STEPS", 5),
             embedding_batch_size=embedding_batch_size,
+            vector_store=vector_store,
+            milvus_uri=_resolve_uri(
+                _env_str("MILVUS_URI", str(base / "milvus.db")), base
+            ),
         )

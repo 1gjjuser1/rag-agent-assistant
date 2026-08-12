@@ -126,6 +126,10 @@ class DocumentStore:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        '''
+        RLock 是线程锁（可重入锁）。回忆上一轮讲的：这个项目里后台入库线程在写文档、前台问答线程在读片段，两个线程可能同时操作数据库。这把锁的作用就是保证同一时刻只有一个线程在执行写操作。
+        "可重入"是指：同一个线程拿着锁的时候，再次申请同一把锁不会被自己卡死。这里就有一个真实案例——create_document 方法内部拿着锁调用了 get_document，如果不是可重入锁（RLock）而是普通锁（Lock），程序就死锁了。
+        '''
         self._lock = RLock()
         self._init_schema()
 
@@ -467,3 +471,61 @@ class DocumentStore:
             return row["value"] if row else None
         finally:
             conn.close()
+
+
+def main() -> None:
+    """手动测试入口：走一遍核心流程，验证各方法可用。
+
+    直接运行本文件即可：python store.py
+    数据库建在临时目录，跑完自动删除，不会污染项目。
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = Path(tmp) / "demo_store.sqlite3"
+        store = DocumentStore(db_path)
+        print(f"数据库文件：{db_path}")
+
+        # 1. 创建知识库
+        kb = store.create_kb("产品手册", description="产品相关文档")
+        print(f"创建知识库：{kb.name}（id={kb.id[:8]}...）")
+        print(f"知识库列表：{[k.name for k in store.list_kbs()]}")
+
+        # 2. 创建文档主记录 + 登记文件版本
+        doc = store.create_document(kb.id, "报销制度.txt", category="制度", tags="财务")
+        store.add_version(doc.id, 1, sha256="abc123", size=1024, file_path=Path(tmp) / "报销制度.txt")
+        print(f"创建文档：{doc.filename} v{doc.latest_version}")
+
+        # 3. 模拟同名重传：版本 +1
+        found = store.find_document_by_name(kb.id, "报销制度.txt")
+        assert found is not None, "重传前应已存在同名文档"
+        bumped = store.bump_document(found.id, category="制度", tags="财务,报销")
+        store.add_version(bumped.id, 2, sha256="def456", size=2048, file_path=Path(tmp) / "报销制度_v2.txt")
+        print(f"重传后版本：v{bumped.latest_version}")
+
+        # 4. 写入文本片段
+        chunks = [
+            Chunk(id=_new_id(), doc_id=doc.id, kb_id=kb.id, chunk_index=0,
+                  content="差旅报销需在结束后 7 天内提交。", metadata={"source": "报销制度.txt"}),
+            Chunk(id=_new_id(), doc_id=doc.id, kb_id=kb.id, chunk_index=1,
+                  content="市内交通费每日上限 200 元。", metadata={"source": "报销制度.txt"}),
+        ]
+        store.replace_chunks(chunks)
+        print(f"片段数量：{store.count_chunks(kb.id)}")
+        for c in store.iter_chunks(kb.id):
+            print(f"  [{c.chunk_index}] {c.content}")
+
+        # 5. 键值配置
+        store.set_meta("index_version", "3")
+        print(f"meta 读取：index_version={store.get_meta('index_version')}")
+
+        # 6. 软删除文档：片段应被清空
+        store.delete_document(doc.id)
+        print(f"删除文档后片段数量：{store.count_chunks(kb.id)}")
+        print(f"文档列表（含已删除）：{[(d.filename, d.status) for d in store.list_documents(kb.id, include_deleted=True)]}")
+
+        print("全部流程执行完毕 ✅")
+
+
+if __name__ == "__main__":
+    main()

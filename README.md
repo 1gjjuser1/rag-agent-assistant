@@ -9,7 +9,7 @@
 ## 功能特性
 
 - **多知识库**：独立创建 / 切换 / 删除，每个知识库有独立的向量索引与关键词索引；
-- **混合检索**：向量语义检索 + BM25 词面检索，RRF 融合排序，可选 MMR 去重重排；
+- **混合检索**：向量语义检索（Milvus，兼容 Chroma 备选）+ BM25 词面检索，RRF 融合排序，可选 MMR 去重重排；
 - **相关性门槛**：向量与 BM25 都没有像样命中才拒答，避免幻觉；BM25 强命中时不会被向量阈值误杀；
 - **增量入库**：SHA-256 判重，只处理变化的文件；切分参数或 Embedding 模型变更时自动全量重建；
 - **文档版本**：同名文件重传自动升版本，旧版本文件保留在磁盘；
@@ -71,6 +71,18 @@ python evals/run_eval.py --offline   # 离线：无需 API Key，验证评测链
 python evals/run_eval.py             # 在线：真实 Embedding + LLM，得到可写进简历的指标
 ```
 
+### 切换到 Docker 版 Milvus（生产/集群部署）
+
+本地默认用 Milvus Lite（`data/milvus.db`，零部署）。需要标准 Milvus 服务端时：
+
+```bash
+docker compose -f deploy/milvus-docker-compose.yml up -d
+# .env 中设置
+MILVUS_URI=http://localhost:19530
+```
+
+切换后应用会自动检测到向量存储地址变化并全量重建索引，无需手工迁移。
+
 ## 独立运行与测试
 
 ```bash
@@ -111,6 +123,8 @@ ruff check .
 | `RAG_CONTEXT_MAX_TOKENS` | 2500 | 检索片段送入大模型的 token 预算 |
 | `AGENT_MAX_STEPS` | 5 | Agent 最大工具调用轮数 |
 | `EMBEDDING_BATCH_SIZE` | 16 | Embedding 批量大小（DashScope 单次最多 20 条，超出会报 batch size 错误） |
+| `VECTOR_STORE` | `milvus` | 向量存储后端：`milvus`（默认，Milvus Lite/服务端）或 `chroma` |
+| `MILVUS_URI` | `data/milvus.db` | 本地模式填文件路径（零部署）；服务端填 `http://localhost:19530` |
 | `LOGO_PATH` | `assets/logo.png` | 页面 Logo 图片路径（可选） |
 
 ## 目录结构
@@ -123,20 +137,22 @@ llm_client.py        DashScope 封装（对话 / 流式 / Function Calling / Emb
 rag_pipeline.py      RAG 管线（知识库 / 入库 / 混合检索 / 问答）
 react_agent.py       Function Calling Agent（工具注册表 / 多步循环 / 流式事件）
 store.py             SQLite 文档库（知识库 / 文档 / 版本 / 片段 / 配置）
-vector_store.py      Chroma 向量存储封装
+vector_store.py      Milvus（Lite/服务端）+ Chroma 双后端向量存储封装
 ingestion.py         文档解析（PDF/Word/Markdown/TXT，含本地 OCR 兜底）与切分
 utils/retrieval.py   分词 / BM25 / RRF / MMR 工具
 utils/logger.py      线程安全的 JSONL Agent 轨迹日志
 evals/               golden set 评测（离线/在线两种模式）
 tests/               46 个离线测试（mock LLM 与 Embedding）
 .github/workflows/   CI（pytest + ruff + mypy）
+deploy/              Milvus Standalone Docker Compose（生产/集群部署）
 docs/                架构说明与学习指南
 ```
 
 ## 数据存储
 
 - 元数据与片段：`data/kb.sqlite3`（SQLite，WAL 模式，可被后台线程安全访问）；
-- 向量：`data/chroma/`（Chroma，每个知识库一个 collection）；
+- 向量：`data/milvus.db`（Milvus Lite 本地模式，每个知识库一个 collection；
+  生产环境把 `MILVUS_URI` 指向 Docker/集群部署的 Milvus 服务端即可）；
 - 文档：`data/docs/<kb_id>/<doc_id>/v<版本>/<文件名>`（版本化保存）；
 - Agent 轨迹：`data/agent_trace.jsonl`。
 - 页面 Logo：`assets/logo.png`（河南辉煌科技官网下载，可通过 `LOGO_PATH` 替换）。
