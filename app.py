@@ -98,6 +98,26 @@ st.markdown(
       section[data-testid="stSidebar"] .stButton button {
         border-radius: 10px;
         justify-content: flex-start;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      /* 会话行：平时隐藏 ⋯ 菜单按钮，鼠标悬停整行时显示 */
+      div[class*="st-key-conv_row_"] button[data-testid="stPopoverButton"] {
+        opacity: 0;
+        pointer-events: none;
+        border: none;
+        background: transparent;
+        box-shadow: none;
+        color: #6b6b6b;
+        min-width: 1.8rem;
+        padding: 0 0.2rem;
+        transition: opacity 0.15s ease;
+      }
+      div[class*="st-key-conv_row_"]:hover button[data-testid="stPopoverButton"] {
+        opacity: 1;
+        pointer-events: auto;
       }
 
       /* 欢迎页：居中标题 + 居中输入框（仿 DeepSeek 首页） */
@@ -219,6 +239,7 @@ def _new_conversation(kb_id: str | None, title: str = "新对话") -> dict:
         "title": title,
         "messages": [],
         "kb_id": kb_id,
+        "pinned": False,
     }
 
 
@@ -260,7 +281,7 @@ with st.sidebar:
 
     tab_chat, tab_kb = st.tabs(["💬 对话", "📚 知识库"])
 
-    # 对话面板：新建 / 切换 / 删除 / 清空
+    # 对话面板：新建 / 切换 / 管理（重命名 / 置顶 / 删除）
     with tab_chat:
         if st.button(
             "＋ 开启新对话",
@@ -283,33 +304,55 @@ with st.sidebar:
         if not history_items:
             st.caption("暂无历史对话")
         else:
-            for cid, conv in reversed(history_items):
+            newest_first = list(reversed(history_items))
+            display_items = [
+                kv for kv in newest_first if kv[1].get("pinned")
+            ] + [kv for kv in newest_first if not kv[1].get("pinned")]
+            for cid, conv in display_items:
                 label = conv.get("title") or "新对话"
+                if conv.get("pinned"):
+                    label = f"📌 {label}"
                 if cid == current_id:
                     label = f"▸ {label}"
-                col1, col2 = st.columns([5, 1])
-                with col1:
-                    if st.button(label, key=f"open_{cid}", width="stretch"):
-                        st.session_state.current_conv_id = cid
-                        st.rerun()
-                with col2:
-                    if st.button("✕", key=f"del_{cid}", help="删除该对话"):
-                        del st.session_state.conversations[cid]
-                        if st.session_state.current_conv_id == cid:
-                            if st.session_state.conversations:
-                                st.session_state.current_conv_id = next(
-                                    iter(st.session_state.conversations)
-                                )
-                            else:
-                                conv = _new_conversation(kb_id=None)
-                                st.session_state.conversations[conv["id"]] = conv
-                                st.session_state.current_conv_id = conv["id"]
-                        st.rerun()
-
-        st.divider()
-        if st.button("🗑 清空当前对话", width="stretch", key="clear_conv_btn"):
-            _current_conversation()["messages"] = []
-            st.rerun()
+                with st.container(key=f"conv_row_{cid}"):
+                    col1, col2 = st.columns([5, 1])
+                    with col1:
+                        if st.button(label, key=f"open_{cid}", width="stretch"):
+                            st.session_state.current_conv_id = cid
+                            st.rerun()
+                    with col2, st.popover("⋯", key=f"menu_{cid}"):
+                        new_title = st.text_input(
+                            "会话名称",
+                            value=conv.get("title", ""),
+                            key=f"rename_input_{cid}",
+                        )
+                        if st.button(
+                            "保存名称", key=f"rename_save_{cid}", width="stretch"
+                        ):
+                            title = new_title.strip()
+                            if title:
+                                conv["title"] = title
+                            st.rerun()
+                        st.divider()
+                        if st.button(
+                            "取消置顶" if conv.get("pinned") else "置顶会话",
+                            key=f"pin_{cid}",
+                            width="stretch",
+                        ):
+                            conv["pinned"] = not conv.get("pinned")
+                            st.rerun()
+                        if st.button("删除会话", key=f"del_{cid}", width="stretch"):
+                            del st.session_state.conversations[cid]
+                            if st.session_state.current_conv_id == cid:
+                                if st.session_state.conversations:
+                                    st.session_state.current_conv_id = next(
+                                        iter(st.session_state.conversations)
+                                    )
+                                else:
+                                    conv = _new_conversation(kb_id=None)
+                                    st.session_state.conversations[conv["id"]] = conv
+                                    st.session_state.current_conv_id = conv["id"]
+                            st.rerun()
 
     # 知识库面板：管理与上传
     with tab_kb:
